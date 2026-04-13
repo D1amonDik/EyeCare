@@ -215,164 +215,94 @@ class EyeCareOverlay:
         self._draw_all()
 
     def _draw_all(self) -> None:
-        """Рисует весь UI. Вызывается при первом построении и при resize."""
+        """Финальная версия: пиксельные шрифты и жесткая фиксация."""
         canvas = self._canvas
         canvas.delete("all")
-        self._pb_id = None
-        self._timer_id = None
-        self._pb_bg_id = None
-        self._close_id = None
-
-        c   = self.colors
-        d   = self._dpi
         
-        # Получаем реальные размеры canvas
-        canvas.update_idletasks()
-        cw  = canvas.winfo_width()
-        ch  = canvas.winfo_height()
+        c = self.colors
         
-        # Если размеры еще не определены, используем размеры окна
-        if cw <= 1:
-            cw = self.root.winfo_width() or sc(560, d)
-        if ch <= 1:
-            ch = self.root.winfo_height() or sc(400, d)
-            
-        cx  = cw // 2   # горизонтальный центр
+        # 1. Получаем точные размеры окна в пикселях
+        self.root.update_idletasks()
+        cw = self.root.winfo_width()
+        ch = self.root.winfo_height()
+        
+        # Если Tkinter еще не определил размер (бывает при старте), берем дефолт
+        if cw < 10: cw = 560
+        if ch < 10: ch = 400
+        cx = cw // 2
 
-        # Адаптивные размеры шрифтов - процент от размера окна
-        # Заголовок: ~3.5% высоты окна
-        title_fs = max(10, min(20, int(ch * 0.035)))
-        # Таймер: ~12% высоты окна (уменьшено с 15%)
-        timer_fs = max(24, min(70, int(ch * 0.12)))
-        # Подпись: ~2.5% высоты
-        sub_fs   = max(8, min(13, int(ch * 0.025)))
-        # Упражнение: ~2.8% высоты
-        ex_fs    = max(10, min(15, int(ch * 0.028)))
-        # Описание: ~2.3% высоты
-        desc_fs  = max(9, min(12, int(ch * 0.023)))
-        # Прогресс-бар: ~1.5% высоты
-        pb_h     = max(5, min(10, int(ch * 0.015)))
-        # Отступы: ~2.5% высоты
-        gap      = max(8, min(18, int(ch * 0.025)))
+        # 2. ШРИФТЫ В ПИКСЕЛЯХ (Отрицательные значения = пиксели)
+        # Это заставит текст ВСЕГДА быть пропорциональным окну
+        title_fs = -max(14, int(ch * 0.05))
+        timer_fs = -max(40, int(ch * 0.18))
+        sub_fs   = -max(12, int(ch * 0.035))
+        ex_fs    = -max(16, int(ch * 0.05))
+        desc_fs  = -max(12, int(ch * 0.035))
+        pb_h     = max(4,  int(ch * 0.02))
 
-        # ── Нижняя акцентная полоска ───────────────────────
-        canvas.create_rectangle(0, ch - max(3, int(ch * 0.01)), cw, ch,
-                                 fill=c["accent"], outline="")
+        # 3. КООРДИНАТЫ (Проценты от высоты)
+        y_title    = int(ch * 0.10)
+        y_timer    = int(ch * 0.35)
+        y_sub      = int(ch * 0.52)
+        y_pb       = int(ch * 0.62)
+        y_exercise = int(ch * 0.75)
+        y_desc     = int(ch * 0.88)
 
-        # Начинаем с верхнего отступа
-        y = int(ch * 0.1)  # 10% от верха
+        # --- РИСОВАНИЕ ---
 
-        # ── Иконка + заголовок ─────────────────────────────
-        canvas.create_text(cx, y, anchor="n",
+        # Полоска снизу
+        canvas.create_rectangle(0, ch-5, cw, ch, fill=c["accent"], outline="")
+
+        # Заголовок (используем anchor="center" для надежности)
+        canvas.create_text(cx, y_title, anchor="center",
             text=get_text("eye_rest_time", self.lang),
-            font=("Segoe UI", title_fs, "bold"),
-            fill=c["text"])
-        y += title_fs + int(gap * 1.5)
+            font=("Segoe UI", title_fs, "bold"), fill=c["text"])
 
-        # ── Разделитель ────────────────────────────────────
-        sep_w = int(cw * 0.7)  # 70% ширины окна
-        sep_thickness = max(1, int(ch * 0.004))
-        canvas.create_line(cx - sep_w//2, y, cx + sep_w//2, y,
-                           fill=c["sep"], width=sep_thickness)
-        y += int(gap * 1.5)
-
-        # ── Таймер ─────────────────────────────────────────
-        self._timer_id = canvas.create_text(
-            cx, y, anchor="n",
+        # Таймер
+        self._timer_id = canvas.create_text(cx, y_timer, anchor="center",
             text=self._fmt(self._remaining),
-            font=("Segoe UI", timer_fs, "bold"),
-            fill=c["timer"])
-        y += timer_fs + int(gap * 2.5)  # Увеличен отступ с 1.5 до 2.5
+            font=("Segoe UI", timer_fs, "bold"), fill=c["timer"])
 
-        # ── Подпись под таймером ───────────────────────────
-        canvas.create_text(cx, y, anchor="n",
+        # Подпись (секунд осталось)
+        canvas.create_text(cx, y_sub, anchor="center",
             text=get_text("seconds_remaining", self.lang),
-            font=("Segoe UI", sub_fs),
-            fill=c["sep"])
-        y += sub_fs + int(gap * 2.5)  # Увеличен отступ с 2 до 2.5
+            font=("Segoe UI", sub_fs), fill=c["sep"])
 
-        # ── Прогресс-бар ───────────────────────────────────
-        pb_w  = int(cw * 0.7)  # 70% ширины окна
-        pb_x0 = cx - pb_w // 2
-        pb_x1 = cx + pb_w // 2
-        # Фон
-        self._pb_bg_id = canvas.create_rectangle(
-            pb_x0, y, pb_x1, y + pb_h,
-            fill=c["secondary"], outline="")
-        # Заполнение
-        self._pb_id = canvas.create_rectangle(
-            pb_x0, y, pb_x1, y + pb_h,
-            fill=c["accent"], outline="")
-        self._pb_x0   = pb_x0
-        self._pb_x1   = pb_x1
-        self._pb_y0   = y
-        self._pb_y1   = y + pb_h
-        y += pb_h + int(gap * 2)
+        # Прогресс-бар
+        pb_w = int(cw * 0.7)
+        x0, x1 = cx - pb_w//2, cx + pb_w//2
+        self._pb_bg_id = canvas.create_rectangle(x0, y_pb, x1, y_pb + pb_h,
+                                               fill=c["secondary"], outline="")
+        self._pb_id = canvas.create_rectangle(x0, y_pb, x1, y_pb + pb_h,
+                                            fill=c["accent"], outline="")
+        self._pb_x0, self._pb_x1, self._pb_y0, self._pb_y1 = x0, x1, y_pb, y_pb + pb_h
 
-        # ── Название упражнения ────────────────────────────
-        canvas.create_text(cx, y, anchor="n",
+        # Название упражнения
+        canvas.create_text(cx, y_exercise, anchor="center",
             text=self._exercise["title"],
-            font=("Segoe UI", ex_fs, "bold"),
-            fill=c["accent"])
-        y += ex_fs + int(gap * 1.2)
+            font=("Segoe UI", ex_fs, "bold"), fill=c["accent"])
 
-        # ── Описание упражнения ────────────────────────────
-        wrap = int(cw * 0.75)  # 75% ширины окна для текста
-        canvas.create_text(cx, y, anchor="n",
+        # Описание упражнения
+        canvas.create_text(cx, y_desc, anchor="center",
             text=self._exercise["desc"],
-            font=("Segoe UI", desc_fs),
-            fill=c["text"],
-            width=wrap,
-            justify="center")
+            font=("Segoe UI", desc_fs), fill=c["text"],
+            width=int(cw * 0.85), justify="center")
 
-        # ── Кнопка ✕ (только не-strict) ───────────────────
+        # Кнопки
         if not self.strict_mode:
-            close_fs = max(12, min(18, int(ch * 0.035)))
-            bx = cw - int(cw * 0.035)
-            by = int(ch * 0.035)
-            self._close_id = canvas.create_text(
-                bx, by, anchor="ne",
-                text="✕",
-                font=("Segoe UI", close_fs, "bold"),
-                fill=c["sep"],
-                tags="close_btn",
-            )
-            canvas.tag_bind("close_btn", "<Button-1>",  lambda e: self._close())
-            canvas.tag_bind("close_btn", "<Enter>",
-                lambda e: canvas.itemconfig("close_btn", fill=c["accent"]))
-            canvas.tag_bind("close_btn", "<Leave>",
-                lambda e: canvas.itemconfig("close_btn", fill=c["sep"]))
+            # Крестик (сделали крупнее: был -20, стал ~6% от высоты окна)
+            close_size = -max(20, int(ch * 0.06))
+            self._close_id = canvas.create_text(cw-30, 30, anchor="center", text="✕",
+                font=("Segoe UI", close_size, "bold"), fill=c["sep"], tags="close_btn")
+            canvas.tag_bind("close_btn", "<Button-1>", lambda e: self._close())
+            
+            # Пропустить (сделали крупнее: был -14, стал ~4% от высоты окна)
+            skip_size = -max(14, int(ch * 0.04))
+            canvas.create_text(cx, ch-40, text=get_text("skip", self.lang),
+                font=("Segoe UI", skip_size), fill=c["sep"], tags="skip_btn", anchor="center")
+            canvas.tag_bind("skip_btn", "<Button-1>", lambda e: self._close())
 
-            # Кнопка Skip снизу
-            skip_fs = max(9, min(13, int(ch * 0.026)))
-            skip_y  = ch - int(ch * 0.09)
-            skip_w  = int(cw * 0.13)
-            skip_h  = int(ch * 0.035)
-            skip_x0 = cx - skip_w
-            skip_x1 = cx + skip_w
-            skip_rect = canvas.create_rectangle(
-                skip_x0, skip_y - skip_h,
-                skip_x1, skip_y + skip_h,
-                fill=c["button_bg"], outline="",
-                tags="skip_btn",
-            )
-            skip_text = canvas.create_text(
-                cx, skip_y, anchor="center",
-                text=get_text("skip", self.lang),
-                font=("Segoe UI", skip_fs),
-                fill=c["button_fg"],
-                tags="skip_btn",
-            )
-            canvas.tag_bind("skip_btn", "<Button-1>",  lambda e: self._close())
-            canvas.tag_bind("skip_btn", "<Enter>",
-                lambda e: canvas.itemconfig("skip_btn", fill=c["sep"]))
-            canvas.tag_bind("skip_btn", "<Leave>",
-                lambda e: (canvas.itemconfig(skip_rect, fill=c["button_bg"]),
-                           canvas.itemconfig(skip_text, fill=c["button_fg"])))
-
-        # Настраиваем цвета пульсации
-        self._pulse_colors = [c["timer"], c["accent"],
-                               c["sep"] if c["sep"] != c["bg"] else c["accent"]]
+        self._pulse_colors = [c["timer"], c["accent"], c["sep"]]
 
     def _on_configure(self, event: tk.Event) -> None:
         """Перерисовка при изменении размера окна."""

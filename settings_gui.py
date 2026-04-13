@@ -740,67 +740,23 @@ class SettingsWindow:
     # ─────────────────────────────────────────────
 
     def _preview(self) -> None:
-        """Запускает overlay в отдельном процессе — без блокировки настроек."""
         import subprocess
         import sys
-        
-        self.config._config["custom_hex_color"] = self._safe_hex(
-            self._var_hex.get()
-        )
-        
-        # Создаем скрипт для запуска preview
-        script = f'''
-import sys
-import os
-import logging
+        import os
 
-# Настраиваем логирование для preview
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    handlers=[
-        logging.FileHandler(r"{os.path.join(os.path.dirname(os.path.abspath(__file__)), 'eye_care.log')}", encoding="utf-8"),
-    ],
-)
-logger = logging.getLogger("PreviewProcess")
-logger.info("[PREVIEW] Запуск preview процесса")
+        if getattr(sys, 'frozen', False):
+            cmd = [sys.executable, "--preview"] # Заменили на --preview
+        else:
+            main_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py")
+            cmd = [sys.executable, main_path, "--preview"] # Заменили на --preview
 
-sys.path.insert(0, r"{os.path.dirname(os.path.abspath(__file__))}")
-
-try:
-    from overlay import EyeCareOverlay
-    from config_manager import ConfigManager
-
-    config = ConfigManager()
-    config._config["custom_hex_color"] = "{self._safe_hex(self._var_hex.get())}"
-    c = config.get_color_scheme("{self._var_scheme.get()}")
-    
-    logger.info("[PREVIEW] Создание overlay")
-
-    EyeCareOverlay(
-        rest_seconds      = {max(5, int(self._var_rest.get()))},
-        colors            = c,
-        opacity           = {float(self._var_opacity.get())},
-        strict_mode       = False,
-        fullscreen        = False,
-        monitor_geometry  = None,
-        on_close_callback = None,
-        is_preview        = True,
-        config            = config,  # Передаем config для сохранения позиции
-    ).show()
-    
-    logger.info("[PREVIEW] Preview finished")
-except Exception as e:
-    logger.error(f"[PREVIEW] Error: {{e}}", exc_info=True)
-'''
-        
         try:
-            # Запускаем в отдельном процессе
-            logger.info("Запуск preview процесса")
-            subprocess.Popen([sys.executable, "-c", script],
-                           creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+            subprocess.Popen(
+                cmd,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
         except Exception as e:
-            logger.error(f"Preview error: {e}", exc_info=True)
+            logger.error(f"Preview error: {e}")
 
     # ─────────────────────────────────────────────
     # Сохранение
