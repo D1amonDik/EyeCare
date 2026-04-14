@@ -37,7 +37,7 @@ _set_dpi()
 # ── Single Instance через TCP Socket ──────────────────────
 import socket
 
-LOCK_PORT = 48127  # Уникальный порт для EyeCare
+LOCK_PORT = 48129  # Уникальный порт для EyeCare
 _lock_socket = None
 
 def is_already_running():
@@ -130,113 +130,26 @@ class EyeCareApp:
                 self._break()
 
     def _break(self):
-        # Проверяем, не завершается ли приложение
-        if self._quit_ev.is_set() or not self._running:
-            logger.info("[MAIN] App shutting down, skipping break")
-            return
-            
-        if self._overlay_up:
-            logger.info("[MAIN] Overlay already open, skipping")
-            return
-        
-        logger.info("[MAIN] Break starting")
-        self._play_sound()
-        self._overlay_up = True
-
-        monitors = self._monitors()
-        target   = self.config.get("monitor_target", "all")
-        if target == "all":
-            targets = monitors
-        else:
-            try:
-                idx = int(target)
-                targets = [monitors[idx]] if idx < len(monitors) else monitors[:1]
-            except (ValueError, IndexError):
-                targets = monitors[:1]
-
-        logger.info(f"[MAIN] Starting overlay on {len(targets)} monitor(s) via subprocess")
-        
-        # Запускаем overlay в отдельном процессе
         import subprocess
-        script = f'''
-import sys
-import os
-import logging
-
-# Настраиваем логирование для subprocess
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    handlers=[
-        logging.FileHandler(r"{LOG_FILE}", encoding="utf-8"),
-    ],
-)
-logger = logging.getLogger("OverlayProcess")
-
-logger.info("[SUBPROCESS] Начало subprocess overlay")
-
-sys.path.insert(0, r"{os.path.dirname(os.path.abspath(__file__))}")
-
-try:
-    from overlay import EyeCareOverlay
-    from config_manager import ConfigManager
-    from stats_manager import StatsManager
-    
-    logger.info("[SUBPROCESS] Модули импортированы")
-
-    config = ConfigManager()
-    stats = StatsManager()
-    c = config.get_color_scheme()
-    
-    logger.info("[SUBPROCESS] Конфиг загружен")
-
-    # Записываем статистику при закрытии
-    def on_close():
-        logger.info("[SUBPROCESS] Callback on_close")
-        stats.record_break()
-
-    logger.info("[SUBPROCESS] Creating EyeCareOverlay")
-    overlay = EyeCareOverlay(
-        rest_seconds     = {self.config.get("rest_seconds", 20)},
-        colors           = c,
-        opacity          = {self.config.get("opacity", 0.92)},
-        strict_mode      = {self.config.get("strict_mode", False)},
-        fullscreen       = {self.config.get("fullscreen_mode", False)},
-        monitor_geometry = {targets[0] if targets else None},
-        on_close_callback= on_close,
-        is_preview       = False,
-        config           = config,  # Передаем config
-    )
-    logger.info("[SUBPROCESS] Calling show()")
-    overlay.show()
-    logger.info("[SUBPROCESS] show() finished")
-except Exception as e:
-    logger.error(f"[SUBPROCESS] Error: {{e}}", exc_info=True)
-'''
+        import sys
         
+        # Проверяем, как мы запущены (.exe или .py)
+        if getattr(sys, 'frozen', False):
+            cmd = [sys.executable, "--overlay"]
+        else:
+            # sys.argv[0] — это путь к твоему main.py
+            cmd = [sys.executable, sys.argv[0], "--overlay"]
+
         try:
-            # Устанавливаем переменную окружения для subprocess
-            env = os.environ.copy()
-            env['EYECARE_SUBPROCESS'] = '1'
-            
-            # Запускаем и ждем завершения
+            logger.info(f"[MAIN] Starting overlay: {' '.join(cmd)}")
+            # Запускаем и ждем (wait), чтобы основной таймер не тикал, пока идет отдых
             process = subprocess.Popen(
-                [sys.executable, "-c", script],
-                env=env,
+                cmd,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
             )
-            logger.info(f"[MAIN] Overlay process started (PID={process.pid})")
-            process.wait()
-            logger.info(f"[MAIN] Overlay process finished")
+            process.wait() 
         except Exception as e:
-            logger.error(f"[MAIN] Error starting overlay: {e}", exc_info=True)
-
-        logger.info("[MAIN] All overlays closed")
-        self._overlay_up = False
-        if self.idle:
-            self.idle.reset()
-        self._update_tray()
-        logger.info("[MAIN] Break finished")
+            logger.error(f"[MAIN] Error starting overlay: {e}")
 
     def _show_overlay(self, geom, record):
         logger.info(f"[MAIN] Starting overlay (record={record}, geom={geom})")
@@ -312,47 +225,21 @@ except Exception as e:
         self.tray = pystray.Icon("EyeCare", img, "Eye Care", menu)
 
     def _open_settings(self):
-        """Открывает настройки в отдельном процессе, чтобы избежать проблем с потоками tkinter."""
         import subprocess
         import sys
         
-        # Создаем скрипт для запуска настроек
-        script = f'''
-import sys
-sys.path.insert(0, r"{os.path.dirname(os.path.abspath(__file__))}")
-from settings_gui import SettingsWindow
-from config_manager import ConfigManager
+        if getattr(sys, 'frozen', False):
+            cmd = [sys.executable, "--settings"]
+        else:
+            cmd = [sys.executable, sys.argv[0], "--settings"]
 
-config = ConfigManager()
-SettingsWindow(config, on_saved=None).show()
-'''
-        
+        logger.info(f"[MAIN] Opening settings: {' '.join(cmd)}")
         try:
-            # Устанавливаем переменную окружения для subprocess
-            env = os.environ.copy()
-            env['EYECARE_SUBPROCESS'] = '1'
-            
-            # Запускаем и ждем завершения
-            process = subprocess.Popen([sys.executable, "-c", script], 
-                           env=env,
-                           creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0)
-            logger.info(f"[MAIN] Settings opened (PID={process.pid})")
-            process.wait()
-            logger.info(f"[MAIN] Settings closed, reloading config")
-            
-            # Перезагружаем конфиг после закрытия настроек
-            self.config.load()
-            
-            # Перезапускаем idle detector с новыми настройками
-            if self.idle:
-                self.idle.stop()
-                self.idle = None
-            self._start_idle()
-            
-            # Сбрасываем таймер
-            self.reset_timer()
-            
-            logger.info("[MAIN] Config reloaded")
+            # Здесь .wait() не нужен, настройки могут висеть отдельно
+            subprocess.Popen(
+                cmd,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+            )
         except Exception as e:
             logger.error(f"Failed to open settings: {e}")
 
@@ -517,47 +404,62 @@ SettingsWindow(config, on_saved=None).show()
 # ─────────────────────────────────────────────────────────────
 
 def main():
-    # ВАЖНО: Проверяем single-instance только для ГЛАВНОГО процесса
-    # Subprocess устанавливают переменную окружения EYECARE_SUBPROCESS=1
-    if os.environ.get('EYECARE_SUBPROCESS') != '1':
-        # Это главный процесс - проверяем socket
-        if is_already_running():
-            # Используем ctypes для вывода сообщения (без Tkinter)
-            lang = "en"
-            try:
-                from config_manager import ConfigManager
-                lang = ConfigManager().get("language", "en")
-            except:
-                pass
-            
-            if lang == "ru":
-                msg = "Eye Care уже запущен!\nПроверьте системный трей."
-            elif lang == "ua":
-                msg = "Eye Care вже запущено!\nПеревірте системний трей."
-            else:
-                msg = "Eye Care is already running!\nCheck your system tray."
-            
-            ctypes.windll.user32.MessageBoxW(
-                0, 
-                msg, 
-                "Eye Care", 
-                0x30  # MB_ICONWARNING
-            )
-            sys.exit(0)
-    else:
-        logger.info("Running as subprocess - skipping socket check")
-
-    # Если мы здесь, значит это единственный экземпляр или subprocess
-    app = EyeCareApp()
+    import sys
+    import ctypes
     
+    # 1. ПРОВЕРКА ФЛАГОВ ДО ВСЕГО ОСТАЛЬНОГО
+    # Мы проверяем аргументы напрямую в sys.argv
+    args = sys.argv[1:] # берем всё, кроме имени файла
+    
+    if "--settings" in args:
+        try:
+            from settings_gui import SettingsWindow
+            from config_manager import ConfigManager
+            config = ConfigManager()
+            # Важно: окно настроек должно быть полностью автономным
+            SettingsWindow(config).show()
+        except Exception as e:
+            logger.error(f"Error in settings process: {e}")
+        sys.exit(0) # ГАРАНТИРОВАННЫЙ ВЫХОД, чтобы не плодить трей
+
+    if "--overlay" in args or "--preview" in args:
+        try:
+            from overlay import EyeCareOverlay
+            from config_manager import ConfigManager
+            from stats_manager import StatsManager
+            
+            is_preview = "--preview" in args
+            config = ConfigManager()
+            stats = StatsManager()
+            c = config.get_color_scheme()
+            
+            overlay = EyeCareOverlay(
+                rest_seconds=config.get("rest_seconds", 20),
+                colors=c,
+                opacity=config.get("opacity", 0.92),
+                strict_mode=config.get("strict_mode", False),
+                fullscreen=config.get("fullscreen_mode", False),
+                on_close_callback=(None if is_preview else lambda: stats.record_break()),
+                is_preview=is_preview,
+                config=config
+            )
+            overlay.show()
+        except Exception as e:
+            logger.error(f"Error in overlay process: {e}")
+        sys.exit(0) # ГАРАНТИРОВАННЫЙ ВЫХОД
+
+    # 2. ОСНОВНОЙ ЗАПУСК (только если нет флагов выше)
+    if is_already_running():
+        # Если порт занят, значит основная программа уже есть в трее.
+        # Просто выходим, не открывая ничего.
+        sys.exit(0)
+
+    app = EyeCareApp()
     try:
         app.run()
-    except KeyboardInterrupt:
-        app._quit()
     except Exception as e:
         logger.error(f"Fatal error: {e}", exc_info=True)
         os._exit(1)
-
 
 if __name__ == "__main__":
     main()

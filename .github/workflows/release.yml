@@ -3,7 +3,7 @@ name: Build and Release EXE
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*' # Сработает при создании тега, например v1.2
 
 permissions:
   contents: write
@@ -19,7 +19,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: '3.10'
+        python-version: '3.11'
 
     - name: Install dependencies
       run: |
@@ -28,7 +28,7 @@ jobs:
         pip install pyinstaller
 
     - name: Build EXE
-      run: pyinstaller --onefile --windowed --name="EyeCare" main.py
+      run: pyinstaller --onefile --noconsole --name="EyeCare" --icon="icon.ico" --collect-all pystray --collect-all pynput main.py
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
