@@ -3,7 +3,7 @@ name: Build and Release EXE
 on:
   push:
     tags:
-      - 'v*' # Сработает при создании тега, например v1.2
+      - 'v*'
 
 permissions:
   contents: write
