@@ -1,8 +1,3 @@
-"""
-localization.py - Система локализации для Eye Care
-Поддерживает: English (по умолчанию), Русский, Українська
-"""
-
 TRANSLATIONS = {
     "en": {
         # Main window
@@ -313,12 +308,10 @@ TRANSLATIONS = {
 
 
 def get_text(key: str, lang: str = "en") -> str:
-    """Получает переведенный текст по ключу."""
     return TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(key, key)
 
 
 def get_language_name(lang_code: str) -> str:
-    """Возвращает название языка."""
     names = {
         "en": "English",
         "ru": "Русский",

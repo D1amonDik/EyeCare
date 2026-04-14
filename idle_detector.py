@@ -1,5 +1,3 @@
-"""idle_detector.py — Eye Care v3"""
-
 import time, threading, logging
 from typing import Callable, Optional
 

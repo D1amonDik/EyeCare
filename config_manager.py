@@ -1,8 +1,3 @@
-"""
-config_manager.py — Eye Care v3
-Конфиг хранится рядом со скриптом в config.json
-"""
-
 import json
 import logging
 import os
@@ -26,18 +21,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "strict_mode":         False,
     "fullscreen_mode":     False,
     "sound_enabled":       True,
-    "sound_type":          "alert",  # "alert", "beep", "custom", "none"
-    "sound_file":          None,      # путь к кастомному звуку
+    "sound_type":          "alert",
+    "sound_file":          None,
     "monitor_target":      "all",
     "smart_detect":        True,
-    "language":            "en",      # "en", "ru", "ua"
-    "first_run":           True,      # Флаг первого запуска
-    # Позиция и размер overlay окна
+    "language":            "en",
+    "first_run":           True,
     "overlay_width":       560,
     "overlay_height":      400,
-    "overlay_x":           None,  # None = центр экрана
+    "overlay_x":           None,
     "overlay_y":           None,
-    # Размер и позиция окна настроек
     "settings_width":      800,
     "settings_height":     650,
     "settings_x":          None,
@@ -91,7 +84,6 @@ COLOR_SCHEMES: Dict[str, Dict[str, str]] = {
     },
 }
 
-
 class ConfigManager:
     def __init__(self):
         self._config: Dict[str, Any] = {}
@@ -131,15 +123,10 @@ class ConfigManager:
         self.save()
 
     def get_color_scheme(self, override_name: str = None) -> Dict[str, str]:
-        """
-        Возвращает словарь цветов.
-        override_name — временная схема (без сохранения), напр. при превью.
-        """
         name    = override_name or self._config.get("color_scheme", "Neon")
         custom  = self._config.get("custom_hex_color", "#00FF88")
 
         if name == "Custom":
-            # Строим схему на основе кастомного цвета
             bg = "#0a0a0f"
             return {
                 "bg":        bg,
@@ -176,7 +163,6 @@ def _darken(hex_color: str, factor: float) -> str:
 
 
 def _contrast_fg(hex_color: str) -> str:
-    """Возвращает белый или чёрный в зависимости от яркости фона."""
     try:
         r, g, b = _hex_to_rgb(hex_color)
         luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255

@@ -1,16 +1,3 @@
-"""
-overlay.py — Eye Care v3
-
-Исправления:
-- Resize переписан полностью: правильное вычисление дельты без накопления ошибки
-- Весь UI строится внутри Canvas с абсолютными координатами → нет проблем с pack/place
-- Центрирование реальное: пересчитывается при каждом Configure
-- Прогресс-бар: Canvas rect, честный от 100% до 0%
-- Пульсация: 1000мс, только в оконном режиме
-- wraplength адаптируется к ширине окна динамически
-- Кнопка ✕ всегда в правом верхнем углу
-"""
-
 import tkinter as tk
 import threading, time, logging, random
 from typing import Callable, Dict, List, Optional, Tuple
@@ -19,7 +6,6 @@ from localization import get_text
 logger = logging.getLogger(__name__)
 
 def get_exercises(lang: str = "en") -> List[Dict[str, str]]:
-    """Возвращает список упражнений на указанном языке."""
     return [
         {"title": get_text("exercise_rotation", lang),
          "desc": get_text("exercise_rotation_desc", lang)},
@@ -52,7 +38,6 @@ def sc(v: int, scale: float) -> int:
 
 
 class EyeCareOverlay:
-    """Overlay окно для перерыва."""
 
     def __init__(
         self,
@@ -63,8 +48,8 @@ class EyeCareOverlay:
         fullscreen:       bool  = False,
         monitor_geometry: Optional[Tuple[int,int,int,int]] = None,
         on_close_callback: Optional[Callable] = None,
-        is_preview:       bool  = False,  # Новый параметр для preview
-        config:           Optional = None,  # Добавляем config для доступа к настройкам
+        is_preview:       bool  = False,
+        config:           Optional = None,
     ):
         self.rest_seconds     = rest_seconds
         self.colors           = colors
@@ -73,28 +58,25 @@ class EyeCareOverlay:
         self.fullscreen       = fullscreen
         self.monitor_geometry = monitor_geometry
         self.on_close_cb      = on_close_callback
-        self.is_preview       = is_preview  # Сохраняем флаг preview
-        self.config           = config  # Сохраняем config
+        self.is_preview       = is_preview
+        self.config           = config
 
         self._remaining   = rest_seconds
         self._running     = False
         self._dpi         = 1.0
         
-        # Получаем язык из конфига
         self.lang = self.config.get("language", "en") if self.config else "en"
         self._exercise    = random.choice(get_exercises(self.lang))
 
-        # --- resize state (хранит SNAPSHOT на момент нажатия) ---
         self._rs_active   = False
         self._rs_edge     = ""
-        self._rs_sx       = 0   # root x_root при нажатии
+        self._rs_sx       = 0
         self._rs_sy       = 0
-        self._rs_ox       = 0   # winfo_x при нажатии
+        self._rs_ox       = 0
         self._rs_oy       = 0
-        self._rs_ow       = 0   # winfo_width при нажатии
+        self._rs_ow       = 0
         self._rs_oh       = 0
 
-        # --- drag state ---
         self._drag_sx     = 0
         self._drag_sy     = 0
         self._drag_ox     = 0
@@ -102,16 +84,12 @@ class EyeCareOverlay:
 
         self.root:             Optional[tk.Tk]    = None
         self._canvas:          Optional[tk.Canvas] = None
-        self._timer_id:        Optional[int]       = None  # canvas item
-        self._pb_id:           Optional[int]       = None  # progressbar rect
+        self._timer_id:        Optional[int]       = None
+        self._pb_id:           Optional[int]       = None
         self._pb_bg_id:        Optional[int]       = None
         self._close_id:        Optional[int]       = None
         self._pulse_colors:    List[str]           = []
         self._pulse_idx:       int                 = 0
-
-    # ──────────────────────────────────────────────────────────
-    # Публичный запуск
-    # ──────────────────────────────────────────────────────────
 
     def show(self) -> None:
         logger.info(f"[OVERLAY] Открытие overlay (preview={self.is_preview})")
@@ -126,10 +104,6 @@ class EyeCareOverlay:
         self.root.mainloop()
         logger.info(f"[OVERLAY] Mainloop finished (preview={self.is_preview})")
 
-    # ──────────────────────────────────────────────────────────
-    # Настройка окна
-    # ──────────────────────────────────────────────────────────
-
     def _configure_window(self) -> None:
         r = self.root
         d = self._dpi
@@ -138,35 +112,27 @@ class EyeCareOverlay:
         r.attributes("-alpha",   self.opacity)
         r.configure(bg=self.colors["bg"])
         
-        # Обновляем геометрию перед расчетами
         r.update_idletasks()
 
         if self.fullscreen:
-            # Используем реальные размеры экрана из tkinter, а не monitor_geometry
-            # monitor_geometry может быть масштабирована из-за DPI
             sw = r.winfo_screenwidth()
             sh = r.winfo_screenheight()
             r.geometry(f"{sw}x{sh}+0+0")
             logger.info(f"[OVERLAY] Полноэкранный режим: {sw}x{sh}")
         else:
-            # Получаем сохраненные размеры или используем дефолтные
             w = self.config.get("overlay_width", sc(560, d)) if self.config else sc(560, d)
             h = self.config.get("overlay_height", sc(400, d)) if self.config else sc(400, d)
             saved_x = self.config.get("overlay_x") if self.config else None
             saved_y = self.config.get("overlay_y") if self.config else None
             
-            # Получаем реальные размеры экрана (не масштабированные)
             r.update_idletasks()
             sw = r.winfo_screenwidth()
             sh = r.winfo_screenheight()
             
-            # Приоритет: сохраненная позиция > центрирование на экране
             if saved_x is not None and saved_y is not None:
-                # Используем сохраненную позицию из preview
                 x, y = saved_x, saved_y
                 logger.info(f"[OVERLAY] Используем сохраненную позицию: x={x}, y={y}")
             else:
-                # Центрируем на реальном экране (игнорируем monitor_geometry из-за DPI)
                 x = (sw - w) // 2
                 y = (sh - h) // 2
                 logger.info(f"[OVERLAY] Центрирование на экране: x={x}, y={y}, sw={sw}, sh={sh}")
@@ -174,18 +140,14 @@ class EyeCareOverlay:
             logger.info(f"[OVERLAY] Позиционирование: w={w}, h={h}, x={x}, y={y}")
             r.geometry(f"{w}x{h}+{x}+{y}")
             
-            # Preview можно изменять размер, реальное окно - нельзя
             if self.is_preview:
                 r.resizable(True, True)
                 r.minsize(sc(380, d), sc(280, d))
             else:
                 r.resizable(False, False)
 
-        # Привязки
         r.bind("<Configure>", self._on_configure)
         if not self.fullscreen:
-            # Для preview - полная поддержка drag & resize
-            # Для реального окна - только drag
             if self.is_preview:
                 r.bind("<ButtonPress-1>",   self._on_press)
                 r.bind("<B1-Motion>",       self._on_motion)
@@ -196,12 +158,7 @@ class EyeCareOverlay:
                 r.bind("<B1-Motion>",       self._on_motion_drag)
                 r.bind("<ButtonRelease-1>", self._on_release_drag)
 
-    # ──────────────────────────────────────────────────────────
-    # Построение UI через Canvas
-    # ──────────────────────────────────────────────────────────
-
     def _build(self) -> None:
-        """Создаёт Canvas на всё окно — рисуем на нём всё."""
         if self._canvas:
             self._canvas.destroy()
         c = self.colors
@@ -210,29 +167,23 @@ class EyeCareOverlay:
             bg=c["bg"], highlightthickness=0,
         )
         self._canvas.pack(fill="both", expand=True)
-        # Принудительно обновляем геометрию перед первой отрисовкой
         self.root.update_idletasks()
         self._draw_all()
 
     def _draw_all(self) -> None:
-        """Финальная версия: пиксельные шрифты и жесткая фиксация."""
         canvas = self._canvas
         canvas.delete("all")
         
         c = self.colors
         
-        # 1. Получаем точные размеры окна в пикселях
         self.root.update_idletasks()
         cw = self.root.winfo_width()
         ch = self.root.winfo_height()
         
-        # Если Tkinter еще не определил размер (бывает при старте), берем дефолт
         if cw < 10: cw = 560
         if ch < 10: ch = 400
         cx = cw // 2
 
-        # 2. ШРИФТЫ В ПИКСЕЛЯХ (Отрицательные значения = пиксели)
-        # Это заставит текст ВСЕГДА быть пропорциональным окну
         title_fs = -max(14, int(ch * 0.05))
         timer_fs = -max(40, int(ch * 0.18))
         sub_fs   = -max(12, int(ch * 0.035))
@@ -240,7 +191,6 @@ class EyeCareOverlay:
         desc_fs  = -max(12, int(ch * 0.035))
         pb_h     = max(4,  int(ch * 0.02))
 
-        # 3. КООРДИНАТЫ (Проценты от высоты)
         y_title    = int(ch * 0.10)
         y_timer    = int(ch * 0.35)
         y_sub      = int(ch * 0.52)
@@ -248,27 +198,20 @@ class EyeCareOverlay:
         y_exercise = int(ch * 0.75)
         y_desc     = int(ch * 0.88)
 
-        # --- РИСОВАНИЕ ---
-
-        # Полоска снизу
         canvas.create_rectangle(0, ch-5, cw, ch, fill=c["accent"], outline="")
 
-        # Заголовок (используем anchor="center" для надежности)
         canvas.create_text(cx, y_title, anchor="center",
             text=get_text("eye_rest_time", self.lang),
             font=("Segoe UI", title_fs, "bold"), fill=c["text"])
 
-        # Таймер
         self._timer_id = canvas.create_text(cx, y_timer, anchor="center",
             text=self._fmt(self._remaining),
             font=("Segoe UI", timer_fs, "bold"), fill=c["timer"])
 
-        # Подпись (секунд осталось)
         canvas.create_text(cx, y_sub, anchor="center",
             text=get_text("seconds_remaining", self.lang),
             font=("Segoe UI", sub_fs), fill=c["sep"])
 
-        # Прогресс-бар
         pb_w = int(cw * 0.7)
         x0, x1 = cx - pb_w//2, cx + pb_w//2
         self._pb_bg_id = canvas.create_rectangle(x0, y_pb, x1, y_pb + pb_h,
@@ -277,26 +220,21 @@ class EyeCareOverlay:
                                             fill=c["accent"], outline="")
         self._pb_x0, self._pb_x1, self._pb_y0, self._pb_y1 = x0, x1, y_pb, y_pb + pb_h
 
-        # Название упражнения
         canvas.create_text(cx, y_exercise, anchor="center",
             text=self._exercise["title"],
             font=("Segoe UI", ex_fs, "bold"), fill=c["accent"])
 
-        # Описание упражнения
         canvas.create_text(cx, y_desc, anchor="center",
             text=self._exercise["desc"],
             font=("Segoe UI", desc_fs), fill=c["text"],
             width=int(cw * 0.85), justify="center")
 
-        # Кнопки
         if not self.strict_mode:
-            # Крестик (сделали крупнее: был -20, стал ~6% от высоты окна)
             close_size = -max(20, int(ch * 0.06))
             self._close_id = canvas.create_text(cw-30, 30, anchor="center", text="✕",
                 font=("Segoe UI", close_size, "bold"), fill=c["sep"], tags="close_btn")
             canvas.tag_bind("close_btn", "<Button-1>", lambda e: self._close())
             
-            # Пропустить (сделали крупнее: был -14, стал ~4% от высоты окна)
             skip_size = -max(14, int(ch * 0.04))
             canvas.create_text(cx, ch-40, text=get_text("skip", self.lang),
                 font=("Segoe UI", skip_size), fill=c["sep"], tags="skip_btn", anchor="center")
@@ -305,19 +243,12 @@ class EyeCareOverlay:
         self._pulse_colors = [c["timer"], c["accent"], c["sep"]]
 
     def _on_configure(self, event: tk.Event) -> None:
-        """Перерисовка при изменении размера окна."""
         if self._canvas and event.widget == self.root:
-            # Обновляем размеры canvas
             self._canvas.config(width=event.width, height=event.height)
             self._draw_all()
             self._update_pb()
 
-    # ──────────────────────────────────────────────────────────
-    # Таймер
-    # ──────────────────────────────────────────────────────────
-
     def _start_timer(self) -> None:
-        # Для preview не запускаем таймер
         if self.is_preview:
             return
             
@@ -356,10 +287,6 @@ class EyeCareOverlay:
                             self._pb_x0, self._pb_y0,
                             fill_x,      self._pb_y1)
 
-    # ──────────────────────────────────────────────────────────
-    # Пульсация (1000 мс — не лагает)
-    # ──────────────────────────────────────────────────────────
-
     def _pulse_step(self) -> None:
         if not self.root or not self._canvas or self._timer_id is None:
             return
@@ -370,10 +297,6 @@ class EyeCareOverlay:
         except Exception:
             return
         self.root.after(1000, self._pulse_step)
-
-    # ──────────────────────────────────────────────────────────
-    # Drag & Resize (для preview)
-    # ──────────────────────────────────────────────────────────
 
     _BORDER = 10  # пикселей
 
@@ -389,7 +312,6 @@ class EyeCareOverlay:
         return e
 
     def _on_press(self, ev: tk.Event) -> None:
-        # Снимаем СНЭПШОТ геометрии окна прямо сейчас
         self.root.update_idletasks()
         edge = self._edge_at(ev.x, ev.y)
         if edge:
@@ -412,7 +334,6 @@ class EyeCareOverlay:
         if self._rs_active:
             self._do_resize(ev.x_root, ev.y_root)
         else:
-            # Перетаскивание: новая позиция = snapshot + delta
             dx = ev.x_root - self._drag_sx
             dy = ev.y_root - self._drag_sy
             nx = self._drag_ox + dx
@@ -423,10 +344,6 @@ class EyeCareOverlay:
         self._rs_active = False
 
     def _do_resize(self, mx: int, my: int) -> None:
-        """
-        Вычисляем новую геометрию ТОЛЬКО из снэпшота + текущей дельты мыши.
-        Никакого накопления ошибки.
-        """
         d   = self._dpi
         MIN_W = sc(380, d)
         MIN_H = sc(280, d)
@@ -444,10 +361,10 @@ class EyeCareOverlay:
             nh = max(MIN_H, oh + dy)
         if "w" in edge:
             nw = max(MIN_W, ow - dx)
-            nx = ox + ow - nw        # двигаем левый край
+            nx = ox + ow - nw
         if "n" in edge:
             nh = max(MIN_H, oh - dy)
-            ny = oy + oh - nh        # двигаем верхний край
+            ny = oy + oh - nh
 
         self.root.geometry(f"{nw}x{nh}+{nx}+{ny}")
 
@@ -461,19 +378,13 @@ class EyeCareOverlay:
         }.get(edge, "")
         self.root.config(cursor=cur)
 
-    # ──────────────────────────────────────────────────────────
-    # Drag (без resize, для реального окна)
-    # ──────────────────────────────────────────────────────────
-
     def _on_press_drag(self, ev: tk.Event) -> None:
-        """Начало перетаскивания окна."""
         self._drag_sx = ev.x_root
         self._drag_sy = ev.y_root
         self._drag_ox = self.root.winfo_x()
         self._drag_oy = self.root.winfo_y()
 
     def _on_motion_drag(self, ev: tk.Event) -> None:
-        """Перетаскивание окна."""
         dx = ev.x_root - self._drag_sx
         dy = ev.y_root - self._drag_sy
         nx = self._drag_ox + dx
@@ -481,21 +392,14 @@ class EyeCareOverlay:
         self.root.geometry(f"+{nx}+{ny}")
 
     def _on_release_drag(self, ev: tk.Event) -> None:
-        """Завершение перетаскивания."""
         pass
-
-    # ──────────────────────────────────────────────────────────
-    # Закрытие
-    # ──────────────────────────────────────────────────────────
 
     def _close(self) -> None:
         logger.info(f"[OVERLAY] Starting close (preview={self.is_preview}, running={self._running})")
         self._running = False
         
-        # Сохраняем позицию и размер для preview
         if self.is_preview and self.root and self.config:
             try:
-                # Обновляем геометрию перед сохранением
                 self.root.update_idletasks()
                 w = self.root.winfo_width()
                 h = self.root.winfo_height()
@@ -504,7 +408,6 @@ class EyeCareOverlay:
                 
                 logger.info(f"[OVERLAY] Сохранение позиции preview: w={w}, h={h}, x={x}, y={y}")
                 
-                # Используем update_bulk для атомарного сохранения
                 self.config.update_bulk({
                     "overlay_width": w,
                     "overlay_height": h,
@@ -516,7 +419,6 @@ class EyeCareOverlay:
             except Exception as e:
                 logger.error(f"[OVERLAY] Error saving position: {e}", exc_info=True)
         
-        # Вызываем callback только для реального окна ПЕРЕД закрытием
         if self.on_close_cb and not self.is_preview:
             try:
                 logger.info("[OVERLAY] Вызов callback...")
@@ -528,7 +430,6 @@ class EyeCareOverlay:
         if self.root:
             try:
                 logger.info("[OVERLAY] Отвязка событий...")
-                # Отвязываем все события перед закрытием
                 self.root.unbind("<Configure>")
                 if not self.fullscreen:
                     if self.is_preview:
@@ -542,7 +443,6 @@ class EyeCareOverlay:
                         self.root.unbind("<ButtonRelease-1>")
                 
                 logger.info("[OVERLAY] Вызов destroy()...")
-                # Уничтожаем окно БЕЗ quit() - это позволит mainloop завершиться
                 self.root.destroy()
                 
                 logger.info("[OVERLAY] Окно уничтожено")
@@ -551,10 +451,6 @@ class EyeCareOverlay:
         
         self._running = False
         logger.info(f"[OVERLAY] Close finished (preview={self.is_preview})")
-
-    # ──────────────────────────────────────────────────────────
-    # Утилиты
-    # ──────────────────────────────────────────────────────────
 
     @staticmethod
     def _fmt(sec: int) -> str:

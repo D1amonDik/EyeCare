@@ -1,5 +1,3 @@
-"""stats_manager.py — Eye Care v3"""
-
 import json, logging, os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -40,7 +38,6 @@ class StatsManager:
         return self._data.get(datetime.now().strftime("%Y-%m-%d"), 0)
 
     def get_weekly_summary(self) -> List[Tuple[str, int]]:
-        # Дни недели на разных языках
         if self.lang == "ru":
             labels = ["Пн","Вт","Ср","Чт","Пт","Сб","Вс"]
             today_label = "Сег"
@@ -49,7 +46,7 @@ class StatsManager:
             labels = ["Пн","Вт","Ср","Чт","Пт","Сб","Нд"]
             today_label = "Сьг"
             yesterday_label = "Вчр"
-        else:  # en
+        else:
             labels = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"]
             today_label = "Tod"
             yesterday_label = "Yes"

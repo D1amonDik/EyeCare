@@ -1,13 +1,3 @@
-"""
-settings_gui.py — Eye Care v4
-Простое компактное окно 660×520. Без прокрутки. Без фоновых потоков.
-- tk.Var создаются ПОСЛЕ Tk() → нет RuntimeError
-- Прозрачность: кнопка "Тест" открывает Toplevel, слайдер меняет alpha напрямую
-- Custom цвет работает корректно
-- Смена темы сохраняет активную вкладку
-- Предпросмотр overlay в отдельном потоке (простой threading.Thread)
-"""
-
 import tkinter as tk
 from tkinter import ttk, colorchooser, messagebox
 import threading, logging, sys, os
@@ -39,10 +29,8 @@ class SettingsWindow:
         self._saved_tab_idx   = 0
         self._opacity_preview: Optional[tk.Toplevel] = None
         
-        # Получаем текущий язык
         self.lang = self.config.get("language", "en")
         
-        # Все tk.Var — None до вызова show()
         self._var_work    = None
         self._var_rest    = None
         self._var_opacity = None
@@ -61,12 +49,7 @@ class SettingsWindow:
         self._var_language = None
     
     def t(self, key: str) -> str:
-        """Shortcut для получения переведенного текста."""
         return get_text(key, self.lang)
-
-    # ─────────────────────────────────────────────
-    # Создание переменных (ПОСЛЕ Tk()!)
-    # ─────────────────────────────────────────────
 
     def _init_vars(self) -> None:
         cfg = self.config
@@ -87,25 +70,19 @@ class SettingsWindow:
         self._var_sound_file = tk.StringVar(value=cfg.get("sound_file", ""))
         self._var_language = tk.StringVar(value=cfg.get("language", "en"))
 
-    # ─────────────────────────────────────────────
-    # Запуск
-    # ─────────────────────────────────────────────
-
     def show(self) -> None:
         self.root = tk.Tk()
         self._d   = _dpi(self.root)
         d         = self._d
 
-        self._init_vars()  # ← ПОСЛЕ tk.Tk()
+        self._init_vars()
 
         self.root.title(self.t("settings_title"))
         self.root.resizable(True, True)
         self.root.protocol("WM_DELETE_WINDOW", self._close)
         
-        # Привязываем обработчик resize для адаптивности текста
         self.root.bind("<Configure>", self._on_window_resize)
 
-        # Получаем сохраненные размеры и позицию
         sw = self.root.winfo_screenwidth()
         sh = self.root.winfo_screenheight()
         
@@ -114,17 +91,13 @@ class SettingsWindow:
         saved_x = self.config.get("settings_x")
         saved_y = self.config.get("settings_y")
         
-        # Размеры окна (БЕЗ масштабирования - используем сохраненные пиксели напрямую)
         win_w = max(480, min(saved_w, int(sw * 0.9)))
         win_h = max(400, min(saved_h, int(sh * 0.9)))
         
-        # Позиция окна
         if saved_x is not None and saved_y is not None:
-            # Используем сохраненную позицию
             win_x = saved_x
             win_y = saved_y
         else:
-            # Центрируем
             win_x = (sw - win_w) // 2
             win_y = (sh - win_h) // 2
         
@@ -137,40 +110,28 @@ class SettingsWindow:
         self.root.mainloop()
     
     def _on_window_resize(self, event):
-        """Обработчик изменения размера окна для адаптивности текста."""
-        # Игнорируем события от дочерних виджетов
         if event.widget != self.root:
             return
         
-        # Пересчитываем масштаб на основе размера окна
         try:
-            # Базовые размеры окна
             base_w = 600
             base_h = 500
             
-            # Текущие размеры
             current_w = event.width
             current_h = event.height
             
-            # Вычисляем масштаб по обеим осям и берем среднее
             scale_w = current_w / base_w
             scale_h = current_h / base_h
             scale = (scale_w + scale_h) / 2
             
-            # Ограничиваем масштаб разумными пределами
             new_d = max(0.7, min(2.0, scale))
             
-            # Перестраиваем UI только если масштаб значительно изменился
             if abs(new_d - self._d) > 0.05:
                 self._d = new_d
                 c = self.config.get_color_scheme(self._var_scheme.get())
                 self._build(c)
         except Exception:
             pass
-
-    # ─────────────────────────────────────────────
-    # Построение UI
-    # ─────────────────────────────────────────────
 
     def _build(self, c: Dict) -> None:
         r = self.root
@@ -180,7 +141,6 @@ class SettingsWindow:
             w.destroy()
         r.configure(bg=c["bg"])
 
-        # ── Заголовок ──────────────────────────────────────
         hdr = tk.Frame(r, bg=c["accent"], height=sc(46, d))
         hdr.pack(fill="x", side="top")
         hdr.pack_propagate(False)
@@ -189,7 +149,6 @@ class SettingsWindow:
                  bg=c["accent"], fg=c["button_fg"]
                  ).pack(side="left", padx=sc(16, d))
 
-        # ── Нижние кнопки (всегда видны) ───────────────────
         tk.Frame(r, bg=c["sep"], height=1).pack(side="bottom", fill="x")
         bot = tk.Frame(r, bg=c["bg"])
         bot.pack(side="bottom", fill="x", padx=sc(14, d), pady=sc(8, d))
@@ -198,7 +157,6 @@ class SettingsWindow:
         self._mkbtn(bot, self.t('reset'),       c, self._reset_all_settings, "left", False)
         self._mkbtn(bot, self.t('preview'), c, self._preview, "left", False)
 
-        # ── Notebook ───────────────────────────────────────
         style = ttk.Style()
         style.theme_use("clam")
         style.configure("S.TNotebook",
@@ -206,7 +164,7 @@ class SettingsWindow:
         style.configure("S.TNotebook.Tab",
                         background=c["bg"], foreground=c["text"],
                         padding=[sc(12, d), sc(6, d)],
-                        font=("Segoe UI", sc(11, d)))  # Увеличен с 10 до 11
+                        font=("Segoe UI", sc(11, d)))
         style.map("S.TNotebook.Tab",
                   background=[("selected", c["accent"])],
                   foreground=[("selected", c["button_fg"])])
@@ -234,10 +192,6 @@ class SettingsWindow:
         except Exception:
             pass
 
-    # ─────────────────────────────────────────────
-    # Вкладка: Таймер
-    # ─────────────────────────────────────────────
-
     def _tab_timer(self, f: tk.Frame, c: Dict) -> None:
         d = self._d
         self._sec(f, self.t("work_time"), c)
@@ -264,14 +218,9 @@ class SettingsWindow:
         tk.Label(row, text=self.t("minutes"), font=("Segoe UI", sc(11, d)),
                  bg=c["bg"], fg=c["text"]).pack(side="left")
 
-    # ─────────────────────────────────────────────
-    # Вкладка: Внешний вид
-    # ─────────────────────────────────────────────
-
     def _tab_appearance(self, f: tk.Frame, c: Dict) -> None:
         d = self._d
 
-        # ── Схемы ──────────────────────────────────────────
         self._sec(f, self.t("color_scheme"), c)
         row = tk.Frame(f, bg=c["bg"])
         row.pack(anchor="w", pady=(sc(2, d), sc(8, d)))
@@ -287,7 +236,6 @@ class SettingsWindow:
                 command=self._apply_theme,
             ).pack(side="left", padx=(0, sc(10, d)))
 
-        # ── Custom HEX ─────────────────────────────────────
         hex_row = tk.Frame(f, bg=c["bg"])
         hex_row.pack(anchor="w", pady=(0, sc(10, d)))
         tk.Label(hex_row, text=self.t("custom_hex"),
@@ -315,7 +263,6 @@ class SettingsWindow:
         pick.bind("<Button-1>", self._pick_color)
         self._var_hex.trace_add("write", self._hex_changed)
 
-        # ── Прозрачность ───────────────────────────────────
         self._sec(f, self.t("opacity"), c)
 
         op_row = tk.Frame(f, bg=c["bg"])
@@ -341,7 +288,6 @@ class SettingsWindow:
         )
         self._op_val_lbl.pack(side="left", padx=(sc(8, d), sc(6, d)))
 
-        # Кнопка "Тест" — открывает/закрывает плавающее окошко
         test_btn = tk.Label(
             op_row, text=f" {self.t('test')} ",
             font=("Segoe UI", sc(9, d)),
@@ -358,7 +304,6 @@ class SettingsWindow:
             bg=c["bg"], fg=c["sep"],
         ).pack(anchor="w", pady=(sc(2, d), 0))
 
-        # ── Звук ───────────────────────────────────────────
         self._sec(f, self.t("sound"), c)
         
         sound_options = [
@@ -384,7 +329,6 @@ class SettingsWindow:
             )
             rb.pack(side="left")
         
-        # Выбор файла (показывается только для custom)
         self._sound_file_frame = tk.Frame(f, bg=c["bg"])
         self._sound_file_frame.pack(anchor="w", pady=(sc(4, d), 0))
         
@@ -412,25 +356,20 @@ class SettingsWindow:
         browse_btn.pack(side="left")
         browse_btn.bind("<Button-1>", lambda e: self._browse_sound())
         
-        # Обновляем видимость UI
         self._update_sound_ui()
 
     def _on_sound_select(self, sound_type: str) -> None:
-        """Вызывается при выборе звука - автоматически проигрывает его."""
         self._update_sound_ui()
-        # Автоматически проигрываем выбранный звук
         if sound_type != "custom":
             self._test_sound()
     
     def _update_sound_ui(self, *_) -> None:
-        """Показывает/скрывает UI выбора файла в зависимости от типа звука."""
         if self._var_sound_type.get() == "custom":
             self._sound_file_frame.pack(anchor="w", pady=(sc(4, self._d), 0))
         else:
             self._sound_file_frame.pack_forget()
     
     def _browse_sound(self) -> None:
-        """Открывает диалог выбора звукового файла."""
         from tkinter import filedialog
         filename = filedialog.askopenfilename(
             parent=self.root,
@@ -445,11 +384,9 @@ class SettingsWindow:
         )
         if filename:
             self._var_sound_file.set(filename)
-            # Автоматически проигрываем выбранный файл
             self._test_sound()
     
     def _test_sound(self) -> None:
-        """Тестирует выбранный звук."""
         sound_type = self._var_sound_type.get()
         sound_file = self._var_sound_file.get()
         
@@ -471,7 +408,6 @@ class SettingsWindow:
             except Exception as e:
                 messagebox.showerror(self.t("error"), f"{self.t('sound_play_error')} {e}", parent=self.root)
         else:
-            # Встроенные звуки
             if sys.platform == "win32":
                 try:
                     import winsound
@@ -482,10 +418,6 @@ class SettingsWindow:
                         winsound.Beep(800, 400)
                 except Exception:
                     pass
-
-    # ─────────────────────────────────────────────
-    # Вкладка: Поведение
-    # ─────────────────────────────────────────────
 
     def _tab_behavior(self, f: tk.Frame, c: Dict) -> None:
         d = self._d
@@ -536,10 +468,6 @@ class SettingsWindow:
                 activebackground=c["bg"],
                 activeforeground=c["accent"],
             ).pack(anchor="w", pady=sc(1, d))
-
-    # ─────────────────────────────────────────────
-    # Вкладка: Статистика
-    # ─────────────────────────────────────────────
 
     def _tab_stats(self, f: tk.Frame, c: Dict) -> None:
         d = self._d
@@ -595,10 +523,6 @@ class SettingsWindow:
         rst.pack(anchor="w", pady=(sc(12, d), 0))
         rst.bind("<Button-1>", lambda e: self._reset_stats())
 
-    # ─────────────────────────────────────────────
-    # Слайдер + Entry (двусторонняя синхронизация)
-    # ─────────────────────────────────────────────
-
     def _slider_entry(self, parent, c: Dict, var,
                       from_, to, unit,
                       is_float=False, res=1) -> None:
@@ -636,7 +560,6 @@ class SettingsWindow:
                      font=("Segoe UI", sc(10, d)),
                      bg=c["bg"], fg=c["text"]).pack(side="left")
 
-        # slider → entry
         def _from_slider(*_):
             try:
                 e_var.set(fmt(var.get()))
@@ -644,7 +567,6 @@ class SettingsWindow:
                 pass
         var.trace_add("write", _from_slider)
 
-        # entry → slider
         def _from_entry(*_):
             try:
                 v = float(e_var.get())
@@ -654,25 +576,17 @@ class SettingsWindow:
                 pass
         e_var.trace_add("write", _from_entry)
 
-    # ─────────────────────────────────────────────
-    # Прозрачность: ползунок + тестовое окошко
-    # ─────────────────────────────────────────────
-
     def _opacity_moved(self, value) -> None:
-        """Вызывается при каждом движении ползунка прозрачности."""
         val = float(value)
-        # Обновляем метку
         try:
             self._op_val_lbl.config(text=f"{val:.2f}")
         except Exception:
             pass
-        # Если тестовое окошко открыто — меняем его alpha напрямую
         if self._opacity_preview and self._opacity_preview.winfo_exists():
             try:
                 self._opacity_preview.attributes("-alpha", val)
             except Exception:
                 pass
-            # Обновляем текст внутри
             try:
                 for w in self._opacity_preview.winfo_children():
                     if isinstance(w, tk.Label):
@@ -684,7 +598,6 @@ class SettingsWindow:
                 pass
 
     def _toggle_opacity_preview(self) -> None:
-        """Открывает или закрывает тестовое окошко прозрачности."""
         if self._opacity_preview and self._opacity_preview.winfo_exists():
             self._opacity_preview.destroy()
             self._opacity_preview = None
@@ -720,10 +633,6 @@ class SettingsWindow:
         win.bind("<Button-1>", lambda e: self._toggle_opacity_preview())
         self._opacity_preview = win
 
-    # ─────────────────────────────────────────────
-    # Мгновенная смена темы (остаёмся на вкладке)
-    # ─────────────────────────────────────────────
-
     def _apply_theme(self) -> None:
         try:
             self._saved_tab_idx = self._nb.index(self._nb.select())
@@ -735,20 +644,16 @@ class SettingsWindow:
         c = self.config.get_color_scheme(self._var_scheme.get())
         self._build(c)
 
-    # ─────────────────────────────────────────────
-    # Предпросмотр overlay
-    # ─────────────────────────────────────────────
-
     def _preview(self) -> None:
         import subprocess
         import sys
         import os
 
         if getattr(sys, 'frozen', False):
-            cmd = [sys.executable, "--preview"] # Заменили на --preview
+            cmd = [sys.executable, "--preview"]
         else:
             main_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "main.py")
-            cmd = [sys.executable, main_path, "--preview"] # Заменили на --preview
+            cmd = [sys.executable, main_path, "--preview"]
 
         try:
             subprocess.Popen(
@@ -758,19 +663,10 @@ class SettingsWindow:
         except Exception as e:
             logger.error(f"Preview error: {e}")
 
-    # ─────────────────────────────────────────────
-    # Сохранение
-    # ─────────────────────────────────────────────
-
     def _save(self) -> None:
         try:
-            # ВАЖНО: Перезагружаем конфиг с диска, чтобы получить актуальные координаты overlay,
-            # которые могли быть сохранены окном preview
             self.config.load()
             logger.info("[SAVE] Конфиг перезагружен с диска перед сохранением")
-            
-            # Формируем словарь обновлений ТОЛЬКО для полей, которые редактируются в настройках
-            # Координаты overlay НЕ включаем - они уже в self.config._config после load()
             updates = {
                 "work_minutes":        max(1,   min(60,  int(self._var_work.get()))),
                 "rest_seconds":        max(10,  min(300, int(self._var_rest.get()))),
@@ -803,38 +699,30 @@ class SettingsWindow:
 
         if sys.platform == "win32":
             self._set_autostart(updates["autostart"])
-
-        # Показываем красивое уведомление вместо messagebox
         self._show_save_notification()
         logger.info("Settings saved.")
 
     def _reset_all_settings(self) -> None:
-        """Сбрасывает все настройки на значения по умолчанию (кроме размера окна настроек)."""
         if not messagebox.askyesno(self.t("reset_confirm"), 
                                     self.t("reset_message"),
                                     parent=self.root):
             return
         
-        # Сохраняем текущий размер и позицию окна настроек
         settings_w = self.config.get("settings_width", 800)
         settings_h = self.config.get("settings_height", 650)
         settings_x = self.config.get("settings_x")
         settings_y = self.config.get("settings_y")
         
-        # Загружаем дефолтные настройки
         from config_manager import DEFAULT_CONFIG
         self.config._config = DEFAULT_CONFIG.copy()
         
-        # Восстанавливаем размер окна настроек
         self.config._config["settings_width"] = settings_w
         self.config._config["settings_height"] = settings_h
         self.config._config["settings_x"] = settings_x
         self.config._config["settings_y"] = settings_y
         
-        # Сохраняем
         self.config.save()
         
-        # Перезагружаем UI
         self._init_vars()
         c = self.config.get_color_scheme()
         self._build(c)
@@ -843,14 +731,12 @@ class SettingsWindow:
         logger.info("Settings reset to defaults")
 
     def _show_save_notification(self) -> None:
-        """Показывает красивое уведомление о сохранении в окне настроек."""
         if not self.root:
             return
             
         c = self.config.get_color_scheme(self._var_scheme.get())
         d = self._d
         
-        # Создаем уведомление в верхней части окна
         notif = tk.Frame(self.root, bg=c["accent"], height=sc(50, d))
         notif.place(relx=0.5, rely=0, anchor="n", relwidth=1.0)
         
@@ -858,7 +744,6 @@ class SettingsWindow:
                  font=("Segoe UI", sc(12, d), "bold"),
                  bg=c["accent"], fg=c["button_fg"]).pack(expand=True)
         
-        # Автоматически скрываем через 2 секунды
         def hide():
             try:
                 notif.destroy()
@@ -868,7 +753,6 @@ class SettingsWindow:
         self.root.after(2000, hide)
 
     def _close(self) -> None:
-        # Сохраняем размер и позицию окна настроек
         if self.root:
             try:
                 self.root.update_idletasks()
@@ -877,7 +761,6 @@ class SettingsWindow:
                 x = self.root.winfo_x()
                 y = self.root.winfo_y()
                 
-                # Сохраняем реальные пиксели (БЕЗ деления на DPI)
                 self.config.update_bulk({
                     "settings_width": w,
                     "settings_height": h,
@@ -896,10 +779,6 @@ class SettingsWindow:
         if self.root:
             self.root.destroy()
             self.root = None
-
-    # ─────────────────────────────────────────────
-    # Вспомогательные виджеты
-    # ─────────────────────────────────────────────
 
     def _sec(self, parent, text: str, c: Dict) -> None:
         d = self._d
@@ -952,10 +831,8 @@ class SettingsWindow:
         try:
             hex_val = self._safe_hex(self._var_hex.get())
             self._color_dot.config(bg=hex_val)
-            # Если выбран Custom, применяем изменения сразу
             if self._var_scheme.get() == "Custom":
                 self.config._config["custom_hex_color"] = hex_val
-                # Обновляем только цвета без перестройки всего UI
                 c = self.config.get_color_scheme("Custom")
                 if self.root:
                     self.root.configure(bg=c["bg"])

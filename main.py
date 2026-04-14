@@ -1,14 +1,8 @@
-"""
-main.py — Eye Care v3
-Точка входа: DPI, mutex, трей, таймер, idle, overlay.
-"""
-
 import sys, os, time, threading, logging, ctypes
 from pathlib import Path
 from typing import List, Optional, Tuple
 from ctypes import wintypes
 
-# ── Логирование ────────────────────────────────────────────
 LOG_FILE = Path(__file__).parent / "eye_care.log"
 logging.basicConfig(
     level=logging.INFO,
@@ -20,7 +14,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger("EyeCare")
 
-# ── High-DPI (Windows) ─────────────────────────────────────
 def _set_dpi():
     if sys.platform != "win32":
         return
@@ -34,31 +27,24 @@ def _set_dpi():
 
 _set_dpi()
 
-# ── Single Instance через TCP Socket ──────────────────────
 import socket
 
-LOCK_PORT = 48129  # Уникальный порт для EyeCare
+LOCK_PORT = 48129
 _lock_socket = None
 
 def is_already_running():
-    """Проверка через TCP socket - самый надежный метод."""
     global _lock_socket
-    
     try:
-        # Пытаемся забиндить порт
         _lock_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         _lock_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         _lock_socket.bind(('127.0.0.1', LOCK_PORT))
-        _lock_socket.listen(1)  # Важно! Нужно listen чтобы держать порт
-        # Если успешно - мы первые
+        _lock_socket.listen(1)
         return False
     except OSError as e:
-        # Порт занят - приложение уже запущено
         logger.info(f"Port {LOCK_PORT} is busy: {e}")
         _lock_socket = None
         return True
 
-# ── Импорты ────────────────────────────────────────────────
 from config_manager import ConfigManager
 from stats_manager  import StatsManager
 from idle_detector  import IdleDetector
@@ -97,13 +83,10 @@ class EyeCareApp:
 
         self._start_idle()
         
-        # Открываем настройки при первом запуске
         if self.config.get("first_run", True):
             logger.info("First run detected - opening settings")
             self.config.set("first_run", False)
             threading.Thread(target=self._open_settings, daemon=True).start()
-
-    # ── Таймер ────────────────────────────────────────────
 
     def start(self):
         if self._running:
@@ -133,16 +116,13 @@ class EyeCareApp:
         import subprocess
         import sys
         
-        # Проверяем, как мы запущены (.exe или .py)
         if getattr(sys, 'frozen', False):
             cmd = [sys.executable, "--overlay"]
         else:
-            # sys.argv[0] — это путь к твоему main.py
             cmd = [sys.executable, sys.argv[0], "--overlay"]
 
         try:
             logger.info(f"[MAIN] Starting overlay: {' '.join(cmd)}")
-            # Запускаем и ждем (wait), чтобы основной таймер не тикал, пока идет отдых
             process = subprocess.Popen(
                 cmd,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -180,8 +160,6 @@ class EyeCareApp:
             self._elapsed     = 0
             self._idle_paused = False
 
-    # ── Idle ──────────────────────────────────────────────
-
     def _start_idle(self):
         if not self.config.get("smart_pause", True):
             return
@@ -203,8 +181,6 @@ class EyeCareApp:
             self._idle_paused = False
             self._elapsed = 0
         logger.info("Smart Idle: reset.")
-
-    # ── Трей ──────────────────────────────────────────────
 
     def setup_tray(self):
         if not TRAY_OK:
@@ -235,7 +211,6 @@ class EyeCareApp:
 
         logger.info(f"[MAIN] Opening settings: {' '.join(cmd)}")
         try:
-            # Здесь .wait() не нужен, настройки могут висеть отдельно
             subprocess.Popen(
                 cmd,
                 creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
@@ -258,23 +233,18 @@ class EyeCareApp:
             n = self.stats.get_today_breaks()
             self.tray.title = f"Eye Care — {n} {get_text('tray_breaks_today', lang)}"
 
-    # ── Выход ─────────────────────────────────────────────
-
     def _quit(self):
         global _lock_socket
         
         logger.info("Starting shutdown sequence...")
         self._running = False
         self._quit_ev.set()
-
-        # 1. Останавливаем Idle Detector
         if self.idle:
             try: 
                 self.idle.stop()
             except: 
                 pass
 
-        # 2. Убиваем дочерние процессы (Overlay, Settings)
         try:
             import psutil
             parent = psutil.Process(os.getpid())
@@ -283,15 +253,13 @@ class EyeCareApp:
         except:
             pass
 
-        # 3. Останавливаем трей (самое важное)
         if self.tray:
             try:
                 self.tray.visible = False
                 self.tray.stop()
             except:
                 pass
-        
-        # 4. Освобождаем socket
+
         if _lock_socket:
             try:
                 _lock_socket.close()
@@ -300,12 +268,9 @@ class EyeCareApp:
                 pass
 
         logger.info("Final exit.")
-        # Принудительно завершаем процесс
         os._exit(0)
         
         os._exit(0)
-
-    # ── Вспомогательные ───────────────────────────────────
 
     def _monitors(self) -> List[Tuple]:
         if SCREEN_OK:
@@ -349,7 +314,6 @@ class EyeCareApp:
             return
         
         if sound_type == "custom":
-            # Кастомный звук
             sound_file = self.config.get("sound_file")
             if sound_file and os.path.exists(sound_file):
                 try:
@@ -364,7 +328,6 @@ class EyeCareApp:
                 except Exception as e:
                     logger.error(f"Sound playback error: {e}")
         
-        # Встроенные звуки (Windows)
         if sys.platform == "win32":
             try:
                 import winsound
@@ -380,8 +343,6 @@ class EyeCareApp:
         else:
             try: print("\a", end="", flush=True)
             except Exception: pass
-
-    # ── Запуск ────────────────────────────────────────────
 
     def run(self):
         logger.info("=" * 50)
@@ -400,27 +361,21 @@ class EyeCareApp:
             except KeyboardInterrupt:
                 self._quit()
 
-
-# ─────────────────────────────────────────────────────────────
-
 def main():
     import sys
     import ctypes
-    
-    # 1. ПРОВЕРКА ФЛАГОВ ДО ВСЕГО ОСТАЛЬНОГО
-    # Мы проверяем аргументы напрямую в sys.argv
-    args = sys.argv[1:] # берем всё, кроме имени файла
+
+    args = sys.argv[1:]
     
     if "--settings" in args:
         try:
             from settings_gui import SettingsWindow
             from config_manager import ConfigManager
             config = ConfigManager()
-            # Важно: окно настроек должно быть полностью автономным
             SettingsWindow(config).show()
         except Exception as e:
             logger.error(f"Error in settings process: {e}")
-        sys.exit(0) # ГАРАНТИРОВАННЫЙ ВЫХОД, чтобы не плодить трей
+        sys.exit(0)
 
     if "--overlay" in args or "--preview" in args:
         try:
@@ -446,12 +401,9 @@ def main():
             overlay.show()
         except Exception as e:
             logger.error(f"Error in overlay process: {e}")
-        sys.exit(0) # ГАРАНТИРОВАННЫЙ ВЫХОД
+        sys.exit(0)
 
-    # 2. ОСНОВНОЙ ЗАПУСК (только если нет флагов выше)
     if is_already_running():
-        # Если порт занят, значит основная программа уже есть в трее.
-        # Просто выходим, не открывая ничего.
         sys.exit(0)
 
     app = EyeCareApp()
